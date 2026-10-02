@@ -117,7 +117,13 @@ func UninstallManager() error {
 	return err2
 }
 
-func InstallTunnel(configPath string) error {
+// InstallTunnel installs and starts a Windows service for the tunnel described
+// by configPath. It is exposed as a function variable so that tests can
+// substitute a fake installer without touching the real Service Control
+// Manager.
+var InstallTunnel = installTunnel
+
+func installTunnel(configPath string) error {
 	m, err := serviceManager()
 	if err != nil {
 		return err
@@ -182,7 +188,11 @@ func InstallTunnel(configPath string) error {
 	return err
 }
 
-func UninstallTunnel(name string) error {
+// UninstallTunnel stops and removes the Windows service for the named tunnel.
+// It is exposed as a function variable for the same reason as InstallTunnel.
+var UninstallTunnel = uninstallTunnel
+
+func uninstallTunnel(name string) error {
 	m, err := serviceManager()
 	if err != nil {
 		return err
