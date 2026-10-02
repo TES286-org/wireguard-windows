@@ -8,9 +8,7 @@ package manager
 import (
 	"bytes"
 	"encoding/gob"
-	"fmt"
 	"io"
-	"log"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -76,42 +74,13 @@ func (s *ManagerService) Start(tunnelName string) error {
 		return err
 	}
 
-	// Figure out which tunnels have intersecting addresses/routes and stop those.
-	trackedTunnelsLock.Lock()
-	tt := make([]string, 0, len(trackedTunnels))
-	var inTransition string
-	for t, state := range trackedTunnels {
-		c2, err := conf.LoadFromName(t)
-		if err != nil || !c.IntersectsWith(c2) {
-			// If we can't get the config, assume it doesn't intersect.
-			continue
-		}
-		tt = append(tt, t)
-		if len(t) > 0 && (state == TunnelStarting || state == TunnelUnknown) {
-			inTransition = t
-			break
-		}
-	}
-	trackedTunnelsLock.Unlock()
-	if len(inTransition) != 0 {
-		return fmt.Errorf("Please allow the tunnel ‘%s’ to finish activating", inTransition)
-	}
-
-	// Stop those intersecting tunnels asynchronously.
-	go func() {
-		for _, t := range tt {
-			s.Stop(t)
-		}
-		for _, t := range tt {
-			state, err := s.State(t)
-			if err == nil && (state == TunnelStarted || state == TunnelStarting) {
-				log.Printf("[%s] Trying again to stop zombie tunnel", t)
-				s.Stop(t)
-				time.Sleep(time.Millisecond * 100)
-			}
-		}
-	}()
-	// After the stop process has begun, but before it's finished, we install the new one.
+	// Multiple tunnels may run concurrently, including tunnels whose
+	// AllowedIPs or interface addresses overlap. Each tunnel process owns
+	// its own WireGuardNT adapter and its own WFP firewall session, and the
+	// firewall layer (tunnel/firewall) is responsible for permitting traffic
+	// on every WireGuard adapter so that overlapping kill-switch tunnels do
+	// not starve each other. Therefore the manager no longer stops already
+	// running tunnels when a new one is started.
 	path, err := c.Path()
 	if err != nil {
 		return err
