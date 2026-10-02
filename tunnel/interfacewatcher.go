@@ -104,6 +104,21 @@ func watchInterface() (*interfaceWatcher, error) {
 		if notificationType != winipcfg.MibAddInstance {
 			return
 		}
+
+		// When a new interface appears that is not this tunnel's own, check
+		// whether it is a WireGuard adapter and, if so, extend this tunnel's
+		// firewall allow-list so the kill switch does not starve the new
+		// tunnel's traffic. This is what lets multiple WireGuard tunnels run
+		// concurrently even when their AllowedIPs overlap.
+		//
+		// The own-LUID case is handled by the setup() path further below; the
+		// pre-Configure case (iw.luid == 0) is handled by replaying stored
+		// events in Configure().
+		if iw.luid != 0 && iface.InterfaceLUID != iw.luid {
+			permitWireGuardInterfaceIfApplicable(iface.InterfaceLUID)
+			return
+		}
+
 		if iw.luid == 0 {
 			iw.storedEvents = append(iw.storedEvents, interfaceWatcherEvent{iface.InterfaceLUID, iface.Family})
 			return
@@ -140,6 +155,11 @@ func (iw *interfaceWatcher) Configure(adapter *driver.Adapter, conf *conf.Config
 	for _, event := range iw.storedEvents {
 		if event.luid == luid {
 			iw.setup(event.family)
+		} else {
+			// A WireGuard adapter may have appeared between watchInterface()
+			// and Configure(); replay those notifications now that the
+			// firewall is enabled so this tunnel permits the new adapter.
+			permitWireGuardInterfaceIfApplicable(event.luid)
 		}
 	}
 	iw.storedEvents = nil
